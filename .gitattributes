@@ -1,0 +1,15 @@
+*.py text eol=lf
+*.lua text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.sh text eol=lf
+
+# Never normalise game assets; they are not in the repository anyway.
+*.png binary
+*.zip binary
+*.exe binary
+*.ttf binary

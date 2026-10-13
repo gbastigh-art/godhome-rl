@@ -1,0 +1,113 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Everything that can be checked without a copy of the game.
+  # ---------------------------------------------------------------------
+  offline:
+    name: Offline checks (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint the Lua harness
+        run: python tools/luacheck.py
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: CLI smoke (no game required)
+        run: |
+          python -m godhome_rl --help
+          python -m godhome_rl bosses | head -5
+          # `build` must fail cleanly, not traceback, when no install is present
+          python -m godhome_rl build --install /nonexistent || true
+
+      - name: Verify no game content is committed
+        run: python tools/check_no_game_content.py
+
+  # ---------------------------------------------------------------------
+  # Full end-to-end check.  Needs the Godhome standalone, which we cannot
+  # redistribute, so this only runs when a secret URL is configured.
+  # ---------------------------------------------------------------------
+  integration:
+    name: End-to-end (boot + train + play)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.GODHOME_STANDALONE_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Fetch the game (kept out of the repository)
+        env:
+          GODHOME_STANDALONE_URL: ${{ secrets.GODHOME_STANDALONE_URL }}
+        run: |
+          mkdir -p vendor/godhome
+          curl -fsSL "$GODHOME_STANDALONE_URL" | unzip -q -o -d vendor/godhome
+
+      - name: Install a software OpenGL driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 xvfb
+
+      - name: Build
+        run: python -m godhome_rl build
+
+      - name: Doctor
+        run: xvfb-run -a python -m godhome_rl doctor
+
+      - name: Benchmark
+        run: xvfb-run -a python -m godhome_rl bench --boss "p1/falseknight" --episodes 2
+
+      - name: Train briefly
+        run: |
+          xvfb-run -a python -m godhome_rl train --name ci --bosses "p1/falseknight" \
+            --n-envs 2 --updates 6 --n-steps 32 --no-resume
+
+      - name: Evaluate the resulting checkpoint
+        run: |
+          xvfb-run -a python -m godhome_rl eval --model runs/ci/checkpoints/latest.pt \
+            --boss "p1/falseknight" --episodes 1
+
+      - name: Artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-metrics
+          path: runs/ci/metrics.csv
+          if-no-files-found: ignore

@@ -1,0 +1,48 @@
+# Build output
+/build/
+/dist/
+*.egg-info/
+.eggs/
+
+# Training artefacts
+/runs/
+*.pt
+*.pth
+*.ckpt
+/wandb/
+/tensorboard/
+/logs/
+
+# The user's copy of the game. NEVER commit this.
+/vendor/
+/godhome-standalone*/
+/Godhome.zip
+/Godhome*.exe
+*.love
+
+# Stale harness diagnostics
+build/ports/*.port
+*.port
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Notebooks
+.ipynb_checkpoints/

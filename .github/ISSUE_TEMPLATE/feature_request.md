@@ -1,0 +1,23 @@
+name: Feature request
+
+**The problem**
+
+<!-- What can't you do today? -->
+
+**What you have in mind**
+
+<!-- The change you want. -->
+
+**Alternatives you considered**
+
+<!-- Workarounds, other agents, manual play, ... -->
+
+**Scope check**
+
+- [ ] This does not require redistributing any part of Godhome, Kristal, Hollow Knight or Deltarune
+- [ ] This keeps the harness, the trainer and the protocol separable
+- [ ] This is testable offline, or reproducible with `bench`
+
+**Anything else?**
+
+<!-- Benchmarks, papers, clips, notes. -->
