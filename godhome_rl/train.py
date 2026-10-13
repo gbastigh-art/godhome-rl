@@ -101,6 +101,36 @@ def _latest_checkpoint(run_dir: Path) -> Path | None:
     return ckpts[-1] if ckpts else None
 
 
+def save_checkpoint(
+    run_dir: Path,
+    ppo: PPO,
+    curriculum: Curriculum,
+    layout: Layout,
+    cfg: TrainConfig,
+    update: int,
+) -> Path:
+    """Write a resumable checkpoint.  The layout is stored so that resuming into
+    a differently-shaped observation refuses instead of silently mis-loading."""
+    path = run_dir / "checkpoints" / f"update_{update:06d}.pt"
+    torch.save(
+        {
+            "model": ppo.ac.state_dict(),
+            "layout": (layout.grid_w, layout.grid_h, layout.max_bullets),
+            "hidden": ppo.ac.actor.in_features,
+            "use_norm": ppo.ac.use_norm,
+            "update": update,
+            "curriculum_index": curriculum.index,
+            "curriculum_episodes": curriculum.episodes_in_stage,
+            "bosses": cfg.bosses,
+            "actions": ppo.ac.n_actions,
+            "obs_dim": layout.dim,
+        },
+        path,
+    )
+    ppo.save(run_dir / "checkpoints" / "latest.pt")
+    return path
+
+
 def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = False) -> Path:
     ppo_cfg = ppo_cfg or PPOConfig(seed=cfg.seed)
     ppo_cfg.n_envs = cfg.n_envs
@@ -224,21 +254,7 @@ def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = Fals
                 )
 
             if (update + 1) % max(1, ppo_cfg.save_interval) == 0:
-                path = run_dir / "checkpoints" / f"update_{update + 1:06d}.pt"
-                torch.save(
-                    {
-                        "model": ppo.ac.state_dict(),
-                        "layout": (layout.grid_w, layout.grid_h, layout.max_bullets),
-                        "hidden": ppo.ac.actor.in_features,
-                        "use_norm": ppo.ac.use_norm,
-                        "update": update + 1,
-                        "curriculum_index": curriculum.index,
-                        "curriculum_episodes": curriculum.episodes_in_stage,
-                        "bosses": cfg.bosses,
-                    },
-                    path,
-                )
-                ppo.save(run_dir / "checkpoints" / "latest.pt")
+                save_checkpoint(run_dir, ppo, curriculum, layout, cfg, update + 1)
 
             if curriculum.promote():
                 promoted = True
@@ -250,10 +266,12 @@ def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = Fals
                 )
                 env.close()
                 env = None
-
-            if promoted or cfg.eval_every <= 0:
-                continue
     finally:
+        # Always leave a usable checkpoint, even for a very short run.
+        try:
+            save_checkpoint(run_dir, ppo, curriculum, layout, cfg, ppo.n_updates)
+        except Exception as exc:  # pragma: no cover - best effort on exit
+            say(f"could not write the final checkpoint: {exc}")
         if env is not None:
             env.close()
         logger.close()
