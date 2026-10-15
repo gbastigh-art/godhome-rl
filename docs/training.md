@@ -142,24 +142,34 @@ python -m godhome_rl train --name strong --bosses all --n-envs 8 \
 
 ### Run length expectations
 
-On the reference machine (4-core i5-7500, no GPU, 3 environments, ~250 sps):
+**We do not have measured promotion times, because nothing has been promoted
+yet.** Every run so far has stalled in stage 1. Publishing a table of "typical
+updates to promote" here would be inventing numbers, so instead this is what
+was actually observed on the reference machine (4-core i5-7500, no GPU):
 
-| Stage | Typical updates to promote | Wall clock |
-| --- | --- | --- |
-| 1 `dodge-basics` | 400–900 | 1–3 hours |
-| 2 `greenpath-fogcanyon` | 800–1 800 | 3–8 hours |
-| 3 `crystal-peak` | 900–2 000 | 4–10 hours |
-| 4 `kingdom` | 1 200–2 500 | 6–12 hours |
-| 5 `nightmare` | 1 500–3 000 | 8–16 hours |
-| 6 `radiance` | — (endpoint) | — |
+| Run | Bosses | Updates | Wall clock | Outcome |
+| --- | --- | --- | --- | --- |
+| A | stage 1 (4 bosses) | 15 902 | 4.3 h | `win_rate` 0.000, plateau at 71.7 % boss health |
+| B | stage 1 (4 bosses) | 14 232 | 2.8 h | same plateau, `win_rate` 0.000 |
+| C | `p1/falseknight` only, 5 envs | — | 9 h | still dies, but clears one full moveset with zero hits |
 
-That is a **single-session** budget of a few days, not months. Runs are
-resumable, so a machine that is only free at night converges over a week of
-evenings.
+Run C is the encouraging one: surviving a complete moveset untouched is not
+something a random policy does. But run C still did not win, so it is
+progress, not success.
 
-These are honest starting estimates, not guarantees: bullet-hell RL has a long
-flat phase before the first real jump, and boss difficulty varies enormously
-inside a stage.
+Two practical lessons that did hold up:
+
+* **Single-boss runs are dramatically faster to get signal from.** Interleaving
+  four bosses splits the gradient four ways; run C on one boss showed visible
+  behavioural change in hours where runs A and B were flat after 1 000 updates.
+* **Runs plateau early.** In A and B, `boss_progress` froze at 0.717 by roughly
+  update 1 000 and never moved again across 13 000 further updates. If your
+  `boss_progress` column has been flat for a long time, more hours at the same
+  settings will not fix it.
+
+When a run does eventually promote, expect the later stages to be considerably
+harder than stage 1 — stage 5 is Nightmarish King and Radiance — and treat any
+projected multi-day schedule as a guess until someone measures it.
 
 ---
 

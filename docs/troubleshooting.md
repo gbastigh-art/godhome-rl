@@ -145,6 +145,41 @@ minimum episode count. If you are evaluating far too often you will see
 `episodes` climb but never reach the win rate. More training resolves it;
 if you want to skip a stage, train that boss list directly.
 
+### The soul never moves, or stands still in the middle of the arena
+
+Almost always one of two harness bugs, both fixed in `PATCH_VERSION 3`:
+
+* **Sticky direction keys.** Kristal's `Input.clear()` resets `key_pressed` and
+  `key_released` but leaves `key_down` alone unless you pass `clear_down`. The
+  harness must call `Input.clear(nil, true)`. If it calls plain `Input.clear()`,
+  every direction key ever pressed stays held, and because `Soul:doMovement`
+  *sums* `Input.down("left")` with `Input.down("right")` the pair cancels out and
+  the soul is glued to one spot for the whole fight. `mv` stays `(0,0)` while all
+  four direction keys read `true`.
+* **A misaligned observation.** If any `put()` call in `lua/rl_obs.lua` runs a
+  different number of times than `godhome_rl/env/layout.py` expects, the grid
+  and bullet blocks silently shift and `dim` truncates the tail. The handshake
+  only checks *sizes*, never *semantics*, so `doctor` stays green while the
+  policy reads the wrong floats.
+
+Quick check that movement is live at all:
+
+```
+python -m godhome_rl eval --model runs/<name>/checkpoints/latest.pt --boss p1/falseknight --episodes 1
+```
+
+If `boss_hp` in the output never drops below ~0.95, the soul is not moving and
+the run is worthless - fix the harness before spending more GPU/CPU hours on it.
+A healthy run shows `boss_hp` well under 0.8 within a couple of episodes even
+from a random policy.
+
+### `restarts` climbs and a Kristal window is left open
+
+`build --force` cannot overwrite the runtime while a harness still holds it.
+Kill strays with `taskkill /F /IM Godhome-rl.exe`; the CLI also takes its own
+harnesses down on exit, so a leftover window always means the harness was
+wedged rather than closed.
+
 ---
 
 ## Playback

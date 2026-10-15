@@ -4,8 +4,13 @@
 
 GodhomeRL runs the *actual game* — the real LÖVE build, the real bullet patterns,
 the real nail arcs — inside a headless harness, and trains a PPO policy against
-it at **hundreds of simulated seconds per wall-clock second**. No part of the
-game is re-implemented or approximated.
+it at roughly **20–25× real time**. No part of the game is re-implemented or
+approximated.
+
+> **Status: works, not yet winning.** The harness, protocol and trainer are
+> solid and verified end to end. The policy reliably learns to survive entire
+> movesets without taking a hit, but it has **not yet beaten a boss**. See
+> [Status](#status) below for measured results and honest expectations.
 
 ```console
 $ python -m godhome_rl doctor
@@ -60,9 +65,9 @@ So GodhomeRL does the opposite of the usual thing:
    attack animation and the arena-spawn animation are auto-confirmed, so the
    policy only ever sees frames where the soul is actually under its control.
    Roughly 25 % of a fight is kept.
-3. **It runs it far faster than real time** — no window, no rendering, no
-   sleeping, fixed 1/30 s timestep, ~600–1 500 decision steps per second per
-   process on a four-year-old laptop CPU.
+3. **It runs it far faster than real time** — no rendering, no sleeping, fixed
+   1/30 s timestep, ~310 decision steps per second per process (more than 750
+   simulated game frames per second) on a four-year-old laptop CPU.
 4. **It is self-contained.** One `Godhome.zip` is the only input. No LÖVE
    install, no Vulkan, no GPU, no network at training time.
 
@@ -95,16 +100,73 @@ guided version with expected output at each step.
 
 ---
 
-## What "insanely good" means here
+## What "good" would mean here
 
 The agent plays the real fight under the real rules: it starts with the
 Knight's 90 HP, has to break armour phases, dodge patterns that fill the screen,
 build tension for Fury, and land nail hits. Winning a Godhome boss fight is the
 only way to finish an episode with a positive terminal reward.
 
-`docs/training.md` has the training curve you should expect, the wall-clock
-budget for each stage, and how to tell "learning to dodge" from
-"learning this specific boss".
+That bar has not been reached yet — see [Status](#status). The gap between
+where it is and where it needs to be is the interesting part of this project,
+and `docs/training.md` lays out what we think the remaining problems are and
+how to tell "learning to dodge" from "learning this specific boss".
+
+---
+
+## Status
+
+Everything below was measured on the reference machine (4-core i5-7500, 16 GB,
+no GPU) against Godhome 0.6.0. Nothing here is projected.
+
+### The infrastructure works
+
+Verified end to end: build, doctor, bench, train, resume, eval, play. ~310
+decision steps/s per process, 890-dim observations, 31 passing offline tests,
+clean Lua syntax check, CI on every push. Training runs are stable — 15 000+
+consecutive updates with 4 harness restarts.
+
+### The policy does not win yet
+
+| Run | Updates | Wall clock | Result |
+| --- | --- | --- | --- |
+| `--bosses all` (stage 1, 4 bosses) | 15 902 | 4.3 h | `win_rate` 0.000, best boss health reached 71.7 % |
+| `--bosses all` (stage 1, 4 bosses) | 14 232 | 2.8 h | same plateau, `win_rate` 0.000 |
+| `--bosses p1/falseknight`, 5 envs | ~9 h | 9 h | still dies, but clears one full moveset **without taking a single hit** |
+
+What is genuinely working:
+
+* Episode return roughly +50 % from initialisation, and survival time grows.
+* Dodging is real, not noise — the False Knight policy passes one complete
+  moveset untouched, which a random policy essentially never does.
+* Value function is healthy (explained variance ~0.8) and entropy has not
+  collapsed, so the optimiser is in a sane regime.
+
+What is not:
+
+* `win_rate` is exactly 0 on every run so far. Nothing has been promoted out of
+  stage 1.
+* Interleaving four bosses dilutes the gradient badly. Single-boss runs improve
+  much faster and are what we recommend.
+* Past roughly update 1 000 the runs plateau on a local optimum — surviving and
+  chipping the boss to ~70 %, then failing to close.
+
+### Honest expectation
+
+Nobody has beaten a boss with this repository yet. The original goal was a
+high win rate "within weeks or months"; the honest read of the data so far is
+that the infrastructure is the solved part and the learning problem is not.
+Anyone picking this up should read [docs/training.md](docs/training.md) for what
+we think the remaining problems are, and [docs/faq.md](docs/faq.md) for the
+questions people ask about it.
+
+Contributions that move the needle most, in order:
+
+1. Per-boss reward shaping or a denser progress signal — the current reward
+   barely distinguishes "chipped to 70 %" from "chipped to 71 %".
+2. Recurrence (an LSTM/GRU policy, or simply longer `--n-steps`) — tracking
+   multi-phase movesets plausibly needs memory the current MLP does not have.
+3. Better value targets for multi-phase bosses whose armour resets health.
 
 ---
 

@@ -42,43 +42,66 @@ python -m godhome_rl bench --boss "p1/falseknight" --episodes 5
 
 | Boss | boot | decision steps/s | game frames/s |
 | --- | --- | --- | --- |
-| False Knight | ~8 s | 460–520 | ~1 250 |
-| Grimm | ~8 s | ~310 | ~1 430 |
-| Radiance | ~8 s | ~330 | ~1 650 |
+| False Knight | 12.0 s | 310 | 751 |
+| Grimm | 8.0 s | 310 | 1 427 |
 
 `decision steps/s` counts only the frames the policy controls. `game frames/s`
 counts every simulated frame, including the auto-confirmed menus, so it is the
 honest measure of how much game time the simulator actually produced.
 
 A fight is ~1 800 engine frames of which roughly a quarter are decisions, so a
-sustained 1 250 frames/s is about **25× real time** while playing *and* a
-human-speed fight takes about a second of wall clock instead of a minute.
+sustained 750–1 400 frames/s is about **25× real time** while playing — a fight
+that takes a human 60 seconds costs about 2–3 seconds of wall clock.
 
 ---
 
 ## Several environments
 
-Three harnesses on three cores, one reserved for the trainer:
+Measured by running `--bosses p1/falseknight --updates 120` at each setting and
+reading `sps` off update 119:
 
-| `--n-envs` | `sps` in `metrics.csv` | notes |
+| `--n-envs` | `sps` | vs 1 env |
 | --- | --- | --- |
-| 1 | ~460 | baseline |
-| 2 | ~380 | already trainer-bound |
-| 3 | ~285 | the default; the policy forward pass is batched across envs |
-| 4 | *no better* on 4 cores | contention |
+| 1 | 135 | 1.0x |
+| 3 | 231 | 1.7x |
+| 5 | 290 | 2.1x |
 
-In practice the trainer sustains **150–400 decision steps/s** during training:
-the rollout loop spends ~1 ms per round on a batched policy forward plus
-~5–9 ms stepping the harnesses, and the PPO update costs 150–300 ms per
-iteration. That is ≈ **0.5–1.4 M decisions per hour**, or ≈ 10 M per day.
+Scaling is **strongly sublinear**, and that is the single most useful fact on
+this page. Five environments do not give you five times the throughput; they
+give you a little over twice.
+
+The reason is that the trainer is **latency-bound, not compute-bound**. Each
+decision step is a TCP round trip — write 4 bytes, the harness runs one
+`love.update`, ship back 3.5 KiB of observation — and the trainer spends most of
+its time blocked on a socket rather than computing. You can see it directly:
+during a 3-environment run the whole job occupies only about **21 % of four
+cores**, leaving roughly three cores idle. Adding environments fills that idle
+time, but every new one also adds more round trips for the single-threaded
+trainer to absorb.
+
+Practical consequence: `--n-envs` buys you **gradient quality** (less variance
+per update, more diverse experience) far more than it buys raw speed.
+
+### Memory is the real ceiling on parallelism
+
+Each harness process settles at roughly **2.5 GB** because every one loads the
+full Godhome asset set independently. On a 16 GB machine that caps you at about
+five environments before the system starts swapping. This, not the CPU, is what
+stops you scaling further.
+
+A single shared process running several independent battle states would remove
+that limit, but Kristal only ever has one global `Game.battle`, so this is a
+harness rewrite rather than a patch. See [README](README.md#status).
 
 ---
 
 ## Scaling rules of thumb
 
-* `n_envs = max(1, cores - 2)`. On 4 cores that is 2; on 16, fourteen.
-* More environments improves gradient quality more than it improves throughput
-  once you are past the point where the trainer is the bottleneck.
+* `--n-envs 5` is a sensible ceiling on 16 GB. Beyond that you are trading
+  throughput for swapping.
+* More environments improves gradient quality more than throughput. If your
+  policy is plateauing, this is *not* the fix — see
+  [README](README.md#status).
 * `--n-steps` trades memory for quality, not time. 256 is comfortable.
 * With a GPU, `--device cuda` speeds up both inference and the update, but the
   simulators still do not — raise `--n-envs` to give the GPU work.
@@ -87,13 +110,13 @@ iteration. That is ≈ **0.5–1.4 M decisions per hour**, or ≈ 10 M per day.
 
 ## Boot time
 
-Booting a harness loads every Godhome asset into GPU memory, once per process.
+Booting a harness loads every Godhome asset into memory, once per process.
 
 | Stage | Cost |
 | --- | --- |
 | Extract `Godhome.zip` (first build only) | ~90 s |
 | Repack the self-contained executable | ~5 s |
-| Per-harness boot at training start | 7–11 s × n_envs |
+| Per-harness boot at training start | 8–12 s × n_envs |
 
 Because a training run creates environments once and then keeps them alive for
 hours, boot cost is amortised to nothing. `VecGodhome` restarts individual
