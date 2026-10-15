@@ -46,6 +46,21 @@ Kristal and Godhome sources you supplied).
 
 ---
 
+## Screenshots
+
+`docs/images/` contains two PNG screenshots of the game in action. They were
+captured from a local patched build of Godhome, using
+`python -m godhome_rl play` — they are not art assets from the repository, and
+no game files were extracted to produce them.
+
+The art, sprites and game design depicted in them remain the property of the
+Godhome and Kristal authors under their own licences, and are included here
+solely to illustrate what this project operates on. If you would rather this
+repository carry no game imagery at all, delete `docs/images/` and the two image
+blocks in `README.md`; nothing else depends on them.
+
+---
+
 ## Fan-work disclaimer
 
 Godhome is a fan project. Hollow Knight is © Team Cherry; Deltarune is © Toby

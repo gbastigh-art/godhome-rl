@@ -2,6 +2,12 @@
 
 **A reinforcement-learning agent that learns to play [Godhome](https://github.com/vitellaryjr/Godhome) — the Hollow Knight boss-rush mod for [Deltarune](https://deltarune.com) / [Kristal](https://github.com/KristalTeam/Kristal).**
 
+<p align="center">
+  <img src="docs/images/play-false-knight.png" alt="The trained agent mid-fight against False Knight, at 10 HP, as the boss charges across the arena" width="640">
+</p>
+
+<p align="center"><sub>The Knight at 10/90 HP, False Knight mid-charge. Captured from <code>python -m godhome_rl play</code> — the real game, the real agent, no cutscenes.</sub></p>
+
 GodhomeRL runs the *actual game* — the real LÖVE build, the real bullet patterns,
 the real nail arcs — inside a headless harness, and trains a PPO policy against
 it at roughly **20–25× real time**. No part of the game is re-implemented or
@@ -45,6 +51,20 @@ $ python -m godhome_rl train --name godhome --bosses all --n-envs 3
 | [docs/faq.md](docs/faq.md) | Questions people actually ask |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to work on this |
 | [LICENSE](LICENSE) | MIT |
+
+---
+
+## What the agent sees
+
+<p align="center">
+  <img src="docs/images/play-mossy-charger.png" alt="The agent fighting Mossy Charger, tension meter at 14 percent, 42 HP remaining" width="640">
+</p>
+
+<p align="center"><sub>Mossy Charger. The tension meter on the left is the game's own — the agent builds it by grazing bullets, and at 100 % the Knight can cast Fury.</sub></p>
+
+Every frame the policy acts on is a real game frame. The arena, the bullets, the
+i-frames, the tension and the spells are all the engine's own code, not a
+simulation of it.
 
 ---
 
