@@ -6,6 +6,7 @@ This module owns *only* transport + process lifetime.  Episode semantics live in
 
 from __future__ import annotations
 
+import atexit
 import os
 import platform
 import shutil
@@ -13,6 +14,7 @@ import socket
 import subprocess
 import sys
 import time
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -137,6 +139,7 @@ class Harness:
             stderr=subprocess.PIPE,
             creationflags=creationflags,
         )
+        _LIVE.add(self)
         self._debug_file = debug_file
 
         port = self._wait_for_port(port_file, timeout)
@@ -257,33 +260,60 @@ class Harness:
             self.sock.close()
             self.sock = None
         if self.proc is not None:
+            # The graceful QUIT is best effort -- a harness that is mid-way
+            # through a rendered frame (or wedged in a Lua trace) may never read
+            # it, and a leftover Godhome window both burns a core and holds a
+            # lock on the runtime exe that breaks the next `build --force`.
             try:
-                self.proc.wait(timeout=5)
+                self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                # The harness may be wedged inside the game loop; a clean QUIT
-                # will not be read, so stop waiting and kill it.
-                self.proc.kill()
+                pass
+            else:
+                self._reap()
+                return
+            self._force_kill()
+            self._reap()
+
+    def _reap(self) -> None:
+        assert self.proc is not None
+        try:
+            self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        for stream in (self.proc.stdout, self.proc.stderr):
+            if stream:
                 try:
-                    self.proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
+                    stream.close()
+                except OSError:
                     pass
-            for stream in (self.proc.stdout, self.proc.stderr):
-                if stream:
-                    try:
-                        stream.close()
-                    except OSError:
-                        pass
-            self.proc = None
+        self.proc = None
+        _LIVE.discard(self)
+
+    def _force_kill(self) -> None:
+        assert self.proc is not None
+        proc = self.proc
+        if platform.system() == "Windows":
+            # /T also takes down anything the game spawned underneath itself.
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                check=False,
+            )
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    def kill(self) -> None:
+        if self.proc is not None:
+            self._force_kill()
+            self._reap()
 
     def __enter__(self) -> "Harness":
         return self.start()
 
     def __exit__(self, *exc) -> None:
         self.close()
-
-    def kill(self) -> None:
-        if self.proc is not None:
-            self.proc.kill()
 
     # -- protocol ------------------------------------------------------------ #
 
@@ -328,3 +358,18 @@ class Harness:
     def step(self, action: int) -> proto.Step:
         self.send_action(action)
         return self.recv()
+
+
+#: Every harness this process has launched.  A leaked harness keeps a game
+#: window open (and a core busy) for the rest of the machine's uptime, so the
+#: interpreter's exit hook takes them all down even after an unhandled crash.
+_LIVE: "weakref.WeakSet[Harness]" = weakref.WeakSet()
+
+
+@atexit.register
+def _close_all_harnesses() -> None:
+    for harness in list(_LIVE):
+        try:
+            harness.close()
+        except Exception:  # pragma: no cover - best effort
+            pass

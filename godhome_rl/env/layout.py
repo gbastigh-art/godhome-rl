@@ -117,8 +117,11 @@ INFO_OUTCOME = 8
 INFO_BOSS_TOTAL = 9
 INFO_ENGINE_GRAZES = 10
 INFO_OVER_REASON = 11
+INFO_SIZE = 16
+#: Indices 12 and 13 are reserved (the harness does not populate them).
 INFO_TENSION = 12
 INFO_WAVE_TIMER = 13
 INFO_N_BULLETS = 14
-INFO_NEAR_BULLETS = 15
-INFO_SIZE = 16
+#: Decision frames consumed so far in this episode -- i.e. the frames the
+#: policy actually saw, excluding auto-confirmed menus/dialogue.
+INFO_AGENT_FRAMES = 15

@@ -230,6 +230,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         bosses=args.bosses,
         n_envs=args.n_envs,
         total_updates=args.updates,
+        max_hours=args.max_hours,
         max_steps=args.max_steps,
         difficulty=args.difficulty,
         variant=args.variant,
@@ -289,16 +290,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
     import torch
 
     from .env.godhome_env import GodhomeEnv
-    from .rl.model import ActorCritic
+    from .rl.model import load_actor_critic
 
     model_path = _resolve_model(args)
-    blob = torch.load(model_path, map_location="cpu", weights_only=False)
-    from .env.layout import Layout
-
-    layout = Layout(*blob["layout"])
-    model = ActorCritic(layout, hidden=int(blob["hidden"]), use_norm=bool(blob["use_norm"]))
-    model.load_state_dict(blob["model"])
-    model.eval()
+    model = load_actor_critic(model_path)
+    layout = model.layout
 
     ids = boss_catalog.resolve_list(args.boss)
     print(f"{'boss':<30} {'win%':>6} {'return':>8} {'frames':>8} {'hits':>6} {'graze':>7}")
@@ -383,6 +379,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="'all' for the curriculum ladder, or any boss selector")
     s.add_argument("--n-envs", type=int, default=3)
     s.add_argument("--updates", type=int, default=4000)
+    s.add_argument("--max-hours", type=float, default=0.0,
+                   help="stop after this many hours (0 = --updates only)")
     s.add_argument("--max-steps", type=int, default=0, help="0 = follow the curriculum")
     s.add_argument("--difficulty", type=int, default=1, choices=(1, 2, 3, 4))
     s.add_argument("--variant", default="attuned", choices=("attuned", "ascended"))
@@ -437,6 +435,12 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\ninterrupted")
         return 130
+    except ValueError as exc:
+        # Mostly "this checkpoint predates the current observation format" --
+        # a user error with an actionable fix, so show the message, not a
+        # traceback.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

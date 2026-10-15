@@ -17,6 +17,12 @@ import torch.nn as nn
 
 from ..env.layout import Layout
 
+#: Bump when the *semantics* of any observation slot change -- even if the
+#: tensor size stays identical.  :meth:`ActorCritic.load` refuses mismatched
+#: checkpoints instead of silently feeding a policy floats it was never trained
+#: on, which otherwise surfaces much later as "the agent just stands there".
+OBS_FORMAT_VERSION = 3
+
 
 def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias: float = 0.0) -> nn.Linear:
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -180,6 +186,7 @@ class ActorCritic(nn.Module):
             {
                 "model": self.state_dict(),
                 "layout": (self.layout.grid_w, self.layout.grid_h, self.layout.max_bullets),
+                "obs_format": OBS_FORMAT_VERSION,
                 "hidden": self.actor.in_features,
                 "use_norm": self.use_norm,
             },
@@ -188,9 +195,39 @@ class ActorCritic(nn.Module):
 
     @classmethod
     def load(cls, path, map_location: str = "cpu") -> "ActorCritic":
-        blob = torch.load(path, map_location=map_location, weights_only=False)
-        layout = Layout(*blob["layout"])
-        model = cls(layout, hidden=int(blob["hidden"]), use_norm=bool(blob.get("use_norm", True)))
-        model.load_state_dict(blob["model"])
-        model.eval()
-        return model
+        return load_actor_critic(path, map_location=map_location)
+
+
+# --------------------------------------------------------------------------- #
+# Single entry point for reading a checkpoint
+# --------------------------------------------------------------------------- #
+
+def check_obs_format(blob: dict, path) -> None:
+    """Raise when a checkpoint's observation semantics predate this build."""
+    found = blob.get("obs_format")
+    if found is None or int(found) != OBS_FORMAT_VERSION:
+        stamp = "unstamped" if found is None else f"v{found}"
+        raise ValueError(
+            f"checkpoint {path} is {stamp} but this build emits observation "
+            f"format v{OBS_FORMAT_VERSION}.  The meaning of the observation "
+            "may have changed, so those weights are not meaningful any more.  "
+            "Retrain from scratch under a new run name (do not pass --resume)."
+        )
+
+
+def load_actor_critic(path, map_location: str = "cpu") -> "ActorCritic":
+    """Load a checkpoint, refusing one written against a different obs format.
+
+    Every command (``train --resume``, ``eval``, ``play``) goes through here so
+    a stale checkpoint fails loudly instead of producing a policy that looks
+    trained but does nothing.
+    """
+    blob = torch.load(path, map_location=map_location, weights_only=False)
+    check_obs_format(blob, path)
+    layout = Layout(*blob["layout"])
+    model = ActorCritic(
+        layout, hidden=int(blob["hidden"]), use_norm=bool(blob.get("use_norm", True))
+    )
+    model.load_state_dict(blob["model"])
+    model.eval()
+    return model

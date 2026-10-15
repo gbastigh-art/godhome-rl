@@ -17,9 +17,8 @@ import torch
 
 from .bosses import display
 from .env.harness import Harness, HarnessConfig
-from .env.layout import Layout
 from .env.proto import EpisodeSpec
-from .rl.model import ActorCritic
+from .rl.model import load_actor_critic
 
 
 def play(
@@ -33,11 +32,8 @@ def play(
     render_every: int = 1,
     quiet: bool = False,
 ) -> dict:
-    blob = torch.load(model_path, map_location="cpu", weights_only=False)
-    layout = Layout(*blob["layout"])
-    model = ActorCritic(layout, hidden=int(blob["hidden"]), use_norm=bool(blob["use_norm"]))
-    model.load_state_dict(blob["model"])
-    model.eval()
+    model = load_actor_critic(model_path)
+    layout = model.layout
 
     harness = Harness(
         HarnessConfig(
@@ -57,9 +53,15 @@ def play(
         harness.start()
         layout.verify(harness.handshake)
         for ep in range(episodes if episodes > 0 else 10**9):
-            boss = bosses[ep % len(bosses)]
+            boss_index = ep % len(bosses)
+            boss = bosses[boss_index]
+            # The wire format carries only an index into the harness's boss
+            # table -- there is no name field -- so `boss_index` is what
+            # actually selects the encounter.  Omitting it silently replays
+            # boss #0 forever.
             step = harness.start_episode(
-                EpisodeSpec(boss_id=boss, seed=int(rng.integers(0, 2**31 - 1)),
+                EpisodeSpec(boss_id=boss, boss_index=boss_index,
+                            seed=int(rng.integers(0, 2**31 - 1)),
                             max_steps=max_steps)
             )
             n = 0

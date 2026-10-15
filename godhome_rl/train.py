@@ -28,7 +28,7 @@ from .curriculum import Curriculum, build_curriculum
 from .env.layout import Layout
 from .env.rewards import RewardWeights
 from .env.vec_env import VecGodhome
-from .rl.model import ActorCritic
+from .rl.model import ActorCritic, check_obs_format
 from .rl.ppo import PPO, PPOConfig
 
 
@@ -40,6 +40,10 @@ class TrainConfig:
     bosses: str = "all"
     n_envs: int = 3
     total_updates: int = 4000
+    #: Wall-clock budget in hours; 0 = unlimited.  Whichever of the two runs
+    #: out first wins, and the run always stops on an update boundary so the
+    #: final checkpoint is consistent.
+    max_hours: float = 0.0
     max_steps: int = 0              # 0 = use the curriculum stage value
     difficulty: int = 1
     variant: str = "attuned"
@@ -154,7 +158,16 @@ def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = Fals
         latest = _latest_checkpoint(run_dir)
         if latest is not None:
             blob = torch.load(latest, map_location="cpu", weights_only=False)
-            if blob.get("layout") == (layout.grid_w, layout.grid_h, layout.max_bullets):
+            stale = None
+            try:
+                check_obs_format(blob, latest)
+            except ValueError as exc:
+                stale = str(exc)
+            if stale is None and blob.get("layout") == (
+                layout.grid_w,
+                layout.grid_h,
+                layout.max_bullets,
+            ):
                 ac = ActorCritic(layout, hidden=blob["hidden"], use_norm=blob["use_norm"])
                 ac.load_state_dict(blob["model"])
                 ppo = PPO(ac, ppo_cfg)
@@ -166,7 +179,8 @@ def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = Fals
                     print(f"[train] resumed from {latest.name} at update {start_update}")
             else:
                 if not quiet:
-                    print("[train] checkpoint layout differs; starting fresh")
+                    print("[train] " + (stale or
+                          "checkpoint layout differs; starting fresh"))
 
     if start_update == 0:
         ac = ActorCritic(layout, use_norm=True)
@@ -181,6 +195,7 @@ def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = Fals
     env = None
 
     try:
+        deadline = time.time() + cfg.max_hours * 3600.0 if cfg.max_hours else None
         for update in range(start_update, cfg.total_updates):
             stage = curriculum.stage
             stage_max_steps = cfg.max_steps or stage.max_steps
@@ -266,6 +281,16 @@ def train(cfg: TrainConfig, ppo_cfg: PPOConfig | None = None, quiet: bool = Fals
                 )
                 env.close()
                 env = None
+
+            # Wall-clock stop.  Checked on the update boundary so the run
+            # always ends with a consistent rollout already applied and a
+            # checkpoint already written.
+            if deadline is not None and time.time() >= deadline:
+                say(
+                    f"reached the {cfg.max_hours:g}h time limit at update "
+                    f"{update + 1}"
+                )
+                break
     finally:
         # Always leave a usable checkpoint, even for a very short run.
         try:

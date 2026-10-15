@@ -24,7 +24,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from .model import ActorCritic
+from .model import ActorCritic, check_obs_format
 
 
 @dataclass(slots=True)
@@ -265,6 +265,7 @@ class PPO:
 
     def load(self, path) -> None:
         blob = torch.load(path, map_location=self.device, weights_only=False)
+        check_obs_format(blob, path)
         self.ac.load_state_dict(blob["model"])
 
 
