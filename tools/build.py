@@ -68,7 +68,7 @@ BOOT_ANCHOR = 'require("src.hotswapper")'
 
 #: Bump whenever the injection/patch logic below changes so existing build dirs
 #: get re-patched instead of silently keeping stale output.
-PATCH_VERSION = 2
+PATCH_VERSION = 3
 
 
 class BuildError(RuntimeError):

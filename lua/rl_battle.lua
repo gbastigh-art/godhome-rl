@@ -352,7 +352,12 @@ end
 --  are read straight off Kristal's Input tables by the Soul class.
 local function inject(action, autopilot)
     local attack, focus = false, false
-    Input.clear()
+    -- `clear_down` MUST be true.  Kristal's `Input.clear()` only resets
+    -- key_pressed/key_released; key_down survives unless asked.  Leaving a
+    -- direction key held makes it sticky, and because Soul:doMovement sums
+    -- `Input.down("left") .. Input.down("right")` a stale pair cancels out and
+    -- the soul is pinned to the spot for the rest of the fight.
+    Input.clear(nil, true)
     if autopilot then
         if _G.RL and _G.RL.debug then
             local b = Game.battle
@@ -471,11 +476,20 @@ local function engine_frame(action, config, autopilot)
     local frac_before = current_boss_frac()
     local _, focus = inject(action, autopilot)
 
+    -- Snapshot the soul *before* the engine moves it.  Obs.build derives the
+    -- velocity channels from `extra.prev_soul_x`, so this has to be the
+    -- position from the previous frame; sampling it afterwards would compare
+    -- the soul against itself and report zero velocity forever.
+    local soul = Game.battle and Game.battle.soul
+    if soul then
+        ep.prev_soul_x, ep.prev_soul_y = soul.x, soul.y
+    end
+
     love.update(config.dt)
 
     local reward = 0
     local hp = party_hp()
-    local soul = Game.battle and Game.battle.soul
+    soul = Game.battle and Game.battle.soul
 
     -- damage taken
     local d_taken = pre_hp - hp
@@ -610,7 +624,6 @@ function Battle.finalise(reward, config)
 
     local frac = current_boss_frac()
     local hp = party_hp()
-    local soul = Game.battle and Game.battle.soul
     local info = Battle.info_buf
     info[0]  = ep.frames
     info[1]  = frac
@@ -626,11 +639,9 @@ function Battle.finalise(reward, config)
     info[11] = ep.over_reason and (STATE_CODE[ep.over_reason] or 0) or 0
     info[14] = Obs.debug_nbullets
     info[15] = ep.agent_frames
-    if soul then
-        ep.prev_soul_x, ep.prev_soul_y = soul.x, soul.y
-    else
-        ep.prev_soul_x, ep.prev_soul_y = SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
-    end
+    -- `ep.prev_soul_*` is deliberately not touched here: engine_frame samples
+    -- it *before* love.update so that Obs.build sees a real frame-to-frame
+    -- delta.  Writing it now would compare the soul against its own position.
 
     return reward, flags, info, 16
 end

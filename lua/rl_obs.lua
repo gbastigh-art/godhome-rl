@@ -3,7 +3,7 @@
 --
 --  The vector is the concatenation of three blocks:
 --
---    [ GLOBAL | fixed 48 floats ]
+--    [ GLOBAL | fixed 50 floats ]
 --    [ GRID   | 2 * grid_w * grid_h floats ]   spatial density + threat field
 --    [ BULLETS| max_bullets * 10 floats ]     nearest-N bullet descriptors
 --
@@ -395,7 +395,11 @@ function Obs.build(extra)
             boss_i = boss_i + 1
         end
     end
-    for _ = boss_i, 3 do
+    -- Pad the boss slots out to exactly 3.  `boss_i` enemies already emitted
+    -- `boss_i` groups of 4, so the filler must run `3 - boss_i` times -- a
+    -- `for _ = boss_i, 3` loop would run `4 - boss_i` times, pushing 4 extra
+    -- floats into the global block and shifting the whole grid/bullet layout.
+    for _ = boss_i + 1, 3 do
         put(0); put(-1); put(0); put(0)
     end
 
