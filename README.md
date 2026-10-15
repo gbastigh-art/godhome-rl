@@ -229,8 +229,7 @@ Godhome.
 * Python 3.10+
 * A copy of the Godhome standalone download (the folder with `Godhome.zip`)
 * ~1 GB of free disk for the extracted game and the self-contained executable
-* No GPU. A CPU-only PyTorch install is fine and is what this was tuned on
-  (4 cores, 16 GB RAM, Intel HD 630).
+* No GPU. A CPU-only PyTorch install is fine.
 
 ---
 
